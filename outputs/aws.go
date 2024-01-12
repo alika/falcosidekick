@@ -50,6 +50,7 @@ import (
 // NewAWSClient returns a new output.Client for accessing the AWS API.
 func NewAWSClient(config *types.Configuration, stats *types.Statistics, promStats *types.PromStatistics, statsdClient, dogstatsdClient *statsd.Client) (*Client, error) {
 	var region string
+	var err error
 	if config.AWS.Region != "" {
 		region = config.AWS.Region
 	} else if os.Getenv("AWS_REGION") != "" {
@@ -60,7 +61,6 @@ func NewAWSClient(config *types.Configuration, stats *types.Statistics, promStat
 		metaSession := session.Must(session.NewSession())
 		metaClient := ec2metadata.New(metaSession)
 
-		var err error
 		region, err = metaClient.Region()
 		if err != nil {
 			log.Printf("[ERROR] : AWS - Error while getting region from Metadata AWS Session: %v\n", err.Error())
@@ -101,6 +101,28 @@ func NewAWSClient(config *types.Configuration, stats *types.Statistics, promStat
 		)
 	}
 
+	var endpointURL *url.URL
+	if config.AWS.EndpointURL != "" {
+		endpointURL, err = url.Parse(config.AWS.EndpointURL)
+		if err != nil {
+			log.Printf("[ERROR] : AWS - Error parsing endpoint url %v\n", err.Error())
+			return nil, errors.New("error parsing AWS endpoint url")
+		}
+		err := os.Setenv("AWS_ENDPOINT_URL", config.AWS.EndpointURL)
+		if err != nil {
+			log.Printf("[ERROR] : AWS - Error setting AWS endpoint url %v\n", err.Error())
+			return nil, errors.New("error setting AWS endpoint url")
+		}
+		awscfg.Endpoint = &config.AWS.EndpointURL
+	}
+	if config.AWS.SQS.URL != "" {
+		endpointURL, err = url.Parse(config.AWS.SQS.URL)
+		if err != nil {
+			log.Printf("[ERROR] : AWS - Error parsing SQS url %v\n", err.Error())
+			return nil, errors.New("error parsing AWS SQS url")
+		}
+	}
+
 	sess, err := session.NewSession(awscfg)
 	if err != nil {
 		log.Printf("[ERROR] : AWS - Error while creating AWS Session: %v\n", err.Error())
@@ -113,13 +135,6 @@ func NewAWSClient(config *types.Configuration, stats *types.Statistics, promStat
 			log.Printf("[ERROR] : AWS - Error while getting AWS Token: %v\n", err.Error())
 			return nil, errors.New("error while getting AWS Token")
 		}
-	}
-
-	var endpointURL *url.URL
-	endpointURL, err = url.Parse(config.AWS.SQS.URL)
-	if err != nil {
-		log.Printf("[ERROR] : AWS SQS - %v\n", err.Error())
-		return nil, ErrClientCreation
 	}
 
 	return &Client{
